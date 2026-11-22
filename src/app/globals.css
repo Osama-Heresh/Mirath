@@ -1,0 +1,201 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 60 56% 91%; /* Light Beige */
+    --foreground: 25 35% 18%; /* Dark Brown */
+
+    --card: 60 56% 94%;
+    --card-foreground: 25 35% 18%;
+
+    --popover: 60 56% 94%;
+    --popover-foreground: 25 35% 18%;
+
+    --primary: 30 47% 64%; /* Sandstone */
+    --primary-foreground: 25 35% 12%; /* Darker Brown for better contrast on Sandstone */
+
+    --secondary: 30 47% 75%; /* Lighter Sandstone */
+    --secondary-foreground: 25 35% 18%;
+
+    --muted: 60 50% 85%; /* Muted Beige */
+    --muted-foreground: 60 25% 45%; /* Darker Muted Beige Text */
+
+    --accent: 80 60% 31%; /* Olive Green */
+    --accent-foreground: 80 60% 95%; /* Light text on Olive Green */
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 30 30% 75%; /* Sandstone-derived border */
+    --input: 30 30% 88%; /* Lighter Sandstone-derived input bg */
+    --ring: 80 60% 31%; /* Olive Green for focus rings */
+
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+
+    /* Sidebar variables - themed based on main theme */
+    --sidebar-background: 60 56% 88%; /* Slightly darker beige for sidebar */
+    --sidebar-foreground: 25 35% 18%;
+    --sidebar-primary: 30 47% 64%; /* Sandstone */
+    --sidebar-primary-foreground: 25 35% 12%;
+    --sidebar-accent: 80 60% 31%; /* Olive Green */
+    --sidebar-accent-foreground: 80 60% 95%;
+    --sidebar-border: 30 30% 70%;
+    --sidebar-ring: 80 60% 31%;
+  }
+
+  .dark {
+    --background: 25 15% 12%; /* Dark Brown/Gray */
+    --foreground: 60 50% 90%; /* Light Beige/Off-white text */
+
+    --card: 25 15% 15%;
+    --card-foreground: 60 50% 90%;
+
+    --popover: 25 15% 15%;
+    --popover-foreground: 60 50% 90%;
+
+    --primary: 30 47% 64%; /* Sandstone */
+    --primary-foreground: 25 35% 10%; /* Very dark text on Sandstone for dark mode */
+
+    --secondary: 30 40% 50%; /* Darker Sandstone */
+    --secondary-foreground: 60 50% 90%;
+
+    --muted: 25 15% 25%; /* Dark Muted */
+    --muted-foreground: 60 30% 70%; /* Lighter Muted Text */
+
+    --accent: 80 60% 45%; /* Brighter Olive Green */
+    --accent-foreground: 80 15% 10%; /* Dark text on Olive Green for dark mode */
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 30 30% 30%; /* Dark Sandstone-derived border */
+    --input: 30 30% 20%; /* Dark Sandstone-derived input bg */
+    --ring: 80 60% 45%; /* Brighter Olive Green for focus rings */
+    
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+
+    /* Sidebar variables - dark theme */
+    --sidebar-background: 25 15% 10%; 
+    --sidebar-foreground: 60 50% 90%;
+    --sidebar-primary: 30 47% 64%;
+    --sidebar-primary-foreground: 25 35% 10%;
+    --sidebar-accent: 80 60% 45%;
+    --sidebar-accent-foreground: 80 15% 10%;
+    --sidebar-border: 30 30% 25%;
+    --sidebar-ring: 80 60% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Print specific styles */
+@media print {
+  body {
+    background-color: white !important; /* Ensure white background for printing */
+    color: black !important; /* Ensure black text for printing */
+    font-size: 10pt; /* Adjust font size for readability */
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Hide elements not relevant to printing the inheritance results */
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  header, 
+  footer, 
+  section#iddah-calculator, 
+  #inheritance-calculator-card > form,
+  #inheritance-calculator-card > .print\:hidden,
+  #inheritance-calculator-card > .card-header { /* Ensure card header is hidden */
+    display: none !important;
+  }
+
+  /* Ensure the printable area takes up the full page */
+  #printableInheritanceResults {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 1cm !important; /* Add some margin for printing */
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  #inheritance-calculator-card {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Style the table for printing */
+  #printableInheritanceResults table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt;
+  }
+  #printableInheritanceResults th,
+  #printableInheritanceResults td {
+    border: 1px solid #ccc !important; /* Light grey border for table cells */
+    padding: 6px !important; /* Reduced padding for print */
+    text-align: right !important; /* Ensure text remains right-aligned */
+    color: black !important;
+    word-break: break-word; /* Allow long words to break to prevent overflow */
+  }
+  #printableInheritanceResults th {
+    background-color: #f0f0f0 !important; /* Light grey background for table headers */
+    font-weight: bold !important;
+  }
+  #printableInheritanceResults tr:nth-child(even) {
+    background-color: #f9f9f9 !important; /* Zebra striping for rows */
+  }
+   #printableInheritanceResults tr {
+    background-color: white !important;
+  }
+
+  /* Style notes for printing */
+  #printableInheritanceResults .whitespace-pre-wrap {
+    background-color: transparent !important;
+    padding: 8px !important; /* Add some padding to notes */
+    border: 1px solid #ccc !important;
+    color: black !important;
+    page-break-inside: avoid; /* Avoid breaking notes across pages if possible */
+    font-size: 9pt;
+  }
+
+  /* Remove unnecessary primary color from headings in print */
+  #printableInheritanceResults h3 {
+    color: black !important;
+    font-size: 12pt;
+  }
+
+  /* Ensure links are styled for print if any (though not expected here) */
+  a {
+    color: #000 !important;
+    text-decoration: underline !important;
+  }
+
+  /* Hide the scrollbar for the table container in print */
+  .overflow-x-auto {
+    overflow-x: visible !important;
+  }
+}
