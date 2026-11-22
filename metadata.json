@@ -1,4 +1,5 @@
 {
   "name": "الميراث الذكي - Smart Inheritance",
-  "description": "تطبيق لحساب الميراث الإسلامي وعدة الأرملة."
+  "description": "تطبيق لحساب الميراث الإسلامي وعدة الأرملة.",
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

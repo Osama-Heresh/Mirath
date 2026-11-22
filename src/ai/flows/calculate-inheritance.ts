@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview An Islamic inheritance calculation AI agent.
@@ -8,8 +7,9 @@
  * - CalculateInheritanceOutput - The return type for the calculateInheritance function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { GoogleGenAI, Type } from '@google/genai';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const CalculateInheritanceInputSchema = z.object({
   familyDetails: z
@@ -32,27 +32,84 @@ const CalculateInheritanceOutputSchema = z.object({
 });
 export type CalculateInheritanceOutput = z.infer<typeof CalculateInheritanceOutputSchema>;
 
-export async function calculateInheritance(input: CalculateInheritanceInput): Promise<CalculateInheritanceOutput> {
-  try {
-    return await calculateInheritanceFlow(input);
-  } catch (error) {
-    console.error('Error in calculateInheritance server action:', error);
-    throw error;
-  }
+export type CalculateInheritanceResult =
+  | { ok: true; data: CalculateInheritanceOutput }
+  | { ok: false; error: string; statusCode?: number };
+
+const MODELS_TO_TRY = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+const MAX_ATTEMPTS_PER_MODEL = 2;
+const BASE_BACKOFF_MS = 700;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const prompt = ai.definePrompt({
-  name: 'calculateInheritancePrompt',
-  input: {schema: CalculateInheritanceInputSchema},
-  output: {schema: CalculateInheritanceOutputSchema},
-  prompt: `You are an expert in Islamic inheritance law (Ilm al-Fara'id). Your task is to meticulously calculate the inheritance shares according to Islamic Sharia based on the provided family details and any will/testament.
+function getErrorStatusCode(error: unknown): number | undefined {
+  if (error && typeof error === 'object') {
+    const errObj = error as { status?: unknown; code?: unknown; message?: unknown };
+    if (typeof errObj.status === 'number') return errObj.status;
+    if (typeof errObj.code === 'number') return errObj.code;
+    if (typeof errObj.message === 'string') {
+      const match = errObj.message.match(/"code"\s*:\s*(\d{3})/);
+      if (match) return Number(match[1]);
+    }
+  }
+  return undefined;
+}
+
+function isRetryableError(error: unknown): boolean {
+  const status = getErrorStatusCode(error);
+  if (status && [429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNAVAILABLE|high demand|RESOURCE_EXHAUSTED|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(message);
+}
+
+function isFallbackEligibleError(error: unknown): boolean {
+  const status = getErrorStatusCode(error);
+  if (status === 404) return true;
+  return isRetryableError(error);
+}
+
+function formatArabicUserError(error: unknown): { message: string; statusCode?: number } {
+  const statusCode = getErrorStatusCode(error);
+  const rawMessage = error instanceof Error ? error.message : String(error);
+
+  if (statusCode === 503 || /UNAVAILABLE|high demand/i.test(rawMessage)) {
+    return {
+      statusCode: 503,
+      message: "الخدمة تشهد ضغطاً مرتفعاً في الطلبات حالياً. يرجى الانتظار بضع ثوانٍ والمحاولة مرة أخرى.",
+    };
+  }
+  if (statusCode === 429 || /RESOURCE_EXHAUSTED/i.test(rawMessage)) {
+    return {
+      statusCode: 429,
+      message: "تم تجاوز حد الطلبات المسموح به حالياً. يرجى المحاولة مرة أخرى بعد قليل.",
+    };
+  }
+  if (statusCode === 400 || statusCode === 401 || statusCode === 403 || /API_KEY_INVALID|PERMISSION_DENIED|Missing Gemini API key/i.test(rawMessage)) {
+    return {
+      statusCode: statusCode ?? 403,
+      message: "تعذر المصادقة مع خدمة الذكاء الاصطناعي. يرجى التحقق من إعدادات مفتاح API في البيئة.",
+    };
+  }
+  return {
+    statusCode,
+    message: "حدث خطأ أثناء حساب الميراث. الرجاء التأكد من المدخلات والمحاولة مرة أخرى. قد يكون السبب هو تعقيد الحالة المقدمة أو خطأ مؤقت في الخدمة.",
+  };
+}
+
+function buildInheritancePrompt(input: CalculateInheritanceInput): string {
+  const estateContext = input.totalEstateValue
+    ? `\nTotal Estate Value (This is for your contextual understanding ONLY. Do NOT use this value to determine shareText or sharePercentage. These must be based purely on Sharia rules): ${input.totalEstateValue} Dinars\n`
+    : '';
+
+  return `You are an expert in Islamic inheritance law (Ilm al-Fara'id). Your task is to meticulously calculate the inheritance shares according to Islamic Sharia based on the provided family details and any will/testament.
 Output must be in Arabic.
 
-Family Details: {{{familyDetails}}}
-{{#if totalEstateValue}}
-Total Estate Value (This is for your contextual understanding ONLY. Do NOT use this value to determine shareText or sharePercentage. These must be based purely on Sharia rules): {{{totalEstateValue}}} Dinars
-{{/if}}
-
+Family Details: ${input.familyDetails}
+${estateContext}
 For each heir, you MUST populate the 'heirs' array in the output. Each object in the 'heirs' array must contain:
 - 'name': The name of the heir in Arabic. If the name is not specified, use a generic term like "الزوجة" or "الابن".
 - 'relationship': Their relationship to the deceased in Arabic.
@@ -97,8 +154,19 @@ Do NOT repeat the individual share percentages in the 'notes' field if they are 
 The 'notes' field provides context or explanations that apply to the overall distribution or specific legal points not covered by the individual share descriptions.
 Provide very precise percentages for sharePercentage (e.g., 16.67 for 1/6, 33.33 for 1/3).
 Double-check all calculations to ensure accuracy and adherence to Sharia principles.
-`,
-});
+`;
+}
+
+export async function calculateInheritance(input: CalculateInheritanceInput): Promise<CalculateInheritanceResult> {
+  try {
+    const data = await calculateInheritanceFlow(input);
+    return { ok: true, data };
+  } catch (error) {
+    console.error('Error in calculateInheritance server action:', error);
+    const { message, statusCode } = formatArabicUserError(error);
+    return { ok: false, error: message, statusCode };
+  }
+}
 
 const calculateInheritanceFlow = ai.defineFlow(
   {
@@ -107,30 +175,108 @@ const calculateInheritanceFlow = ai.defineFlow(
     outputSchema: CalculateInheritanceOutputSchema,
   },
   async input => {
-    try {
-      const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        const missingKeyError = new Error(
-          'Missing Gemini API key: neither GOOGLE_GENAI_API_KEY nor GEMINI_API_KEY is set.'
-        );
-        console.error('calculateInheritanceFlow configuration error:', missingKeyError);
-        throw missingKeyError;
-      }
-
-      const {output} = await prompt(input);
-      if (!output) {
-        const emptyOutputError = new Error(
-          'calculateInheritanceFlow: AI model returned empty or null output.'
-        );
-        console.error(emptyOutputError.message, { input });
-        throw emptyOutputError;
-      }
-
-      return output;
-    } catch (error) {
-      console.error('Error in calculateInheritanceFlow:', error);
-      throw error;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
+    if (!apiKey) {
+      const missingKeyError = new Error(
+        'Missing Gemini API key: neither GEMINI_API_KEY nor GOOGLE_GENAI_API_KEY is set.'
+      );
+      console.error('calculateInheritanceFlow configuration error:', missingKeyError);
+      throw missingKeyError;
     }
+
+    const genAI = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const promptText = buildInheritancePrompt(input);
+    let lastError: unknown;
+
+    for (const modelName of MODELS_TO_TRY) {
+      for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_MODEL; attempt++) {
+        try {
+          const response = await genAI.models.generateContent({
+            model: modelName,
+            contents: promptText,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  heirs: {
+                    type: Type.ARRAY,
+                    description: 'A list of heirs and their corresponding inheritance share details.',
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        name: {
+                          type: Type.STRING,
+                          description: 'The name of the heir in Arabic.',
+                        },
+                        relationship: {
+                          type: Type.STRING,
+                          description: 'The relationship to the deceased in Arabic.',
+                        },
+                        shareText: {
+                          type: Type.STRING,
+                          description: 'The specific textual share of the inheritance for this heir in Arabic (e.g., "النصف", "الربع", "عصبة", "محجوب").',
+                        },
+                        sharePercentage: {
+                          type: Type.NUMBER,
+                          description: 'The percentage of the inheritance for this heir between 0 and 100. If blocked (محجوب), 0.',
+                        },
+                      },
+                      required: ['name', 'relationship', 'shareText', 'sharePercentage'],
+                    },
+                  },
+                  notes: {
+                    type: Type.STRING,
+                    description: 'Any additional legal notes or explanations in Arabic.',
+                  },
+                },
+                required: ['heirs', 'notes'],
+              },
+            },
+          });
+
+          const rawText = response.text?.trim();
+          if (!rawText) {
+            const emptyOutputError = new Error(
+              `calculateInheritanceFlow: Model "${modelName}" returned empty or null output.`
+            );
+            console.error(emptyOutputError.message, { input, modelName, attempt });
+            throw emptyOutputError;
+          }
+
+          const parsedJson = JSON.parse(rawText);
+          return CalculateInheritanceOutputSchema.parse(parsedJson);
+        } catch (error) {
+          lastError = error;
+          console.error(
+            `Error in calculateInheritanceFlow (model=${modelName}, attempt=${attempt + 1}/${MAX_ATTEMPTS_PER_MODEL}):`,
+            error
+          );
+
+          if (!isFallbackEligibleError(error)) {
+            throw error;
+          }
+
+          if (isRetryableError(error) && attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
+            const delayMs = BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.floor(Math.random() * 200);
+            await sleep(delayMs);
+            continue;
+          }
+
+          break;
+        }
+      }
+    }
+
+    console.error('Error in calculateInheritanceFlow: All models and retry attempts exhausted.', lastError);
+    throw lastError;
   }
 );
-

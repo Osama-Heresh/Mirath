@@ -106,13 +106,21 @@ export default function InheritanceCalculator() {
         totalEstateValue: data.totalEstateValue,
       };
       const response = await calculateInheritance(input);
-      if (!response || !Array.isArray(response.heirs)) {
+      if (!response.ok) {
+        console.error("Error calculating inheritance:", {
+          statusCode: response.statusCode,
+          error: response.error,
+        });
+        setError(response.error);
+        return;
+      }
+      if (!response.data || !Array.isArray(response.data.heirs)) {
         const invalidResponseError = new Error("Invalid or empty response received from calculateInheritance.");
         console.error(invalidResponseError, response);
         setError("حدث خطأ أثناء حساب الميراث. الرجاء التأكد من المدخلات والمحاولة مرة أخرى. قد يكون السبب هو تعقيد الحالة المقدمة أو خطأ في تفسير البيانات من قبل الذكاء الاصطناعي.");
         return;
       }
-      setResult(response);
+      setResult(response.data);
     } catch (e) {
       console.error("Error calculating inheritance:", e);
       setError("حدث خطأ أثناء حساب الميراث. الرجاء التأكد من المدخلات والمحاولة مرة أخرى. قد يكون السبب هو تعقيد الحالة المقدمة أو خطأ في تفسير البيانات من قبل الذكاء الاصطناعي.");
